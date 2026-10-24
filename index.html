@@ -1,0 +1,886 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DisasterGuard | Live Monitoring</title>
+
+  <!-- Chart.js for live graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- MQTT.js for live ESP32 communication -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #141e30;
+      --panel2: #1a2740;
+      --border: #283852;
+      --text: #edf3ff;
+      --muted: #94a6c5;
+      --green: #36d399;
+      --red: #ff5d73;
+      --orange: #ffb454;
+      --blue: #60a5fa;
+      --purple: #b69cff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      padding: 22px 5%;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      background: #10192a;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      background: #20375a;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.4px;
+    }
+
+    .subtitle {
+      margin-top: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .connection {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--orange);
+      display: inline-block;
+    }
+
+    .dot.online {
+      background: var(--green);
+      box-shadow: 0 0 10px #36d39966;
+    }
+
+    .dot.offline { background: var(--red); }
+
+    main {
+      max-width: 1450px;
+      margin: auto;
+      padding: 25px 5% 45px;
+    }
+
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .topline h2 {
+      margin: 0;
+      font-size: 21px;
+    }
+
+    .updated {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .banner {
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      margin-bottom: 20px;
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .banner.safe { border-left: 4px solid var(--green); }
+    .banner.danger {
+      border-left: 4px solid var(--red);
+      background: #351b2a;
+    }
+    .banner.waiting { border-left: 4px solid var(--orange); }
+
+    .banner-icon { font-size: 25px; }
+
+    .banner strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .banner small { color: var(--muted); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 19px;
+      min-width: 0;
+    }
+
+    .card-label {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    .value {
+      font-size: 34px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .unit {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .card-foot {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 13px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 20px;
+      background: #24334b;
+      font-size: 12px;
+      margin-top: 13px;
+    }
+
+    .status.safe { color: var(--green); }
+    .status.danger { color: var(--red); }
+    .status.warning { color: var(--orange); }
+
+    .section-title {
+      font-size: 17px;
+      margin: 26px 0 14px;
+    }
+
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 15px;
+    }
+
+    .chart-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 19px;
+      min-width: 0;
+    }
+
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 18px;
+    }
+
+    .chart-wrap {
+      height: 250px;
+      position: relative;
+    }
+
+    .lower {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .alert-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .alert-list li {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .alert-list li:last-child { border-bottom: none; }
+
+    .alert-time {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .empty {
+      color: var(--muted);
+      padding: 20px 0;
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 15px;
+    }
+
+    button {
+      background: #253a5a;
+      color: var(--text);
+      border: 1px solid #3c5273;
+      border-radius: 9px;
+      padding: 10px 13px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    button:hover { background: #30496e; }
+
+    .small-note {
+      font-size: 12px;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    footer {
+      text-align: center;
+      border-top: 1px solid var(--border);
+      padding: 20px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lower { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 600px) {
+      header { padding: 18px 5%; }
+      h1 { font-size: 20px; }
+      main { padding-top: 18px; }
+      .charts { grid-template-columns: 1fr; }
+      .chart-wrap { height: 220px; }
+      .value { font-size: 29px; }
+      .card { padding: 14px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">🛡️</div>
+      <div>
+        <h1>DisasterGuard</h1>
+        <div class="subtitle">IoT Disaster Detection & Live Monitoring</div>
+      </div>
+    </div>
+
+    <div class="connection">
+      <span class="dot" id="connectionDot"></span>
+      <span id="connectionText">Connecting to MQTT...</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="topline">
+      <h2>Monitoring Dashboard</h2>
+      <div class="updated">
+        Last reading: <span id="lastUpdated">Waiting for data</span>
+      </div>
+    </div>
+
+    <div class="banner waiting" id="mainBanner">
+      <div class="banner-icon" id="bannerIcon">📡</div>
+      <div>
+        <strong id="bannerTitle">Waiting for sensor data</strong>
+        <small id="bannerMessage">
+          Start your Wokwi ESP32 simulation to begin monitoring.
+        </small>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-label">💧 Water Sensor</div>
+        <div class="value">
+          <span id="waterValue">--</span>
+          <span class="unit">/ 4095</span>
+        </div>
+        <div class="status safe" id="floodStatus">● No flood alert</div>
+        <div class="card-foot">Threshold: 2500</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">🌫️ Smoke Sensor</div>
+        <div class="value">
+          <span id="smokeValue">--</span>
+          <span class="unit">/ 4095</span>
+        </div>
+        <div class="status safe" id="smokeStatus">● No smoke alert</div>
+        <div class="card-foot">Threshold: 2500</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">📳 Vibration Detection</div>
+        <div class="value" id="vibrationValue">--</div>
+        <div class="status safe" id="vibrationStatus">● Normal</div>
+        <div class="card-foot">
+          Acceleration magnitude: <span id="magnitudeValue">--</span> m/s²
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">🚨 Overall System</div>
+        <div class="value" id="alarmValue">--</div>
+        <div class="status warning" id="alarmStatus">● Waiting</div>
+        <div class="card-foot">
+          MPU6050: <span id="mpuStatus">Unknown</span>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-title">Live Sensor Graphs</h3>
+
+    <div class="charts">
+      <div class="chart-card">
+        <div class="chart-title">💧 Water Sensor Readings</div>
+        <div class="chart-wrap">
+          <canvas id="waterChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">🌫️ Smoke Sensor Readings</div>
+        <div class="chart-wrap">
+          <canvas id="smokeChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">📳 Acceleration Magnitude (m/s²)</div>
+        <div class="chart-wrap">
+          <canvas id="magnitudeChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">🚨 Disaster Alert History</div>
+        <div class="chart-wrap">
+          <canvas id="alertChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="lower">
+      <div class="card">
+        <h3 style="margin-top:0">Recent Alerts</h3>
+        <ul class="alert-list" id="alertHistory">
+          <li class="empty">No alerts received yet.</li>
+        </ul>
+
+        <div class="actions">
+          <button id="notifyButton">Enable Browser Notifications</button>
+          <button id="clearButton">Clear Alert History</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">System Information</h3>
+        <p class="small-note">
+          <strong>Device:</strong> ESP32 + MPU6050<br>
+          <strong>Communication:</strong> MQTT over WebSocket<br>
+          <strong>Broker:</strong> broker.emqx.io<br>
+          <strong>Update interval:</strong> Approximately 500 ms<br>
+          <strong>Graph window:</strong> Last 60 readings
+        </p>
+
+        <p class="small-note">
+          This dashboard is a prototype. Public MQTT topics can be accessed
+          by other people. Do not use it as the sole system for real emergency
+          warnings.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    DisasterGuard · ESP32 IoT Monitoring Prototype
+  </footer>
+
+  <script>
+    // =====================================================
+    // MQTT CONFIGURATION
+    // Must match sketch.ino exactly.
+    // =====================================================
+    const MQTT_URL = "wss://broker.emqx.io:8084/mqtt";
+
+    const MQTT_TOPIC =
+      "disasterguard/moslin-demo-3549069/sensors";
+
+    const MAX_POINTS = 60;
+
+    let mqttClient = null;
+    let browserNotificationsEnabled = false;
+    let lastPayloadTime = 0;
+    let previousAlerts = {
+      flood: false,
+      smoke: false,
+      vibration: false
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    // =====================================================
+    // CHART DEFAULTS
+    // =====================================================
+    Chart.defaults.color = "#94a6c5";
+    Chart.defaults.borderColor = "#283852";
+    Chart.defaults.font.family =
+      "-apple-system, BlinkMacSystemFont, Segoe UI, Arial";
+
+    function createLineChart(canvasId, label, color, maxY) {
+      return new Chart($(canvasId), {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [{
+            label: label,
+            data: [],
+            borderColor: color,
+            backgroundColor: color + "22",
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: true,
+            tension: 0.25
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: {
+            intersect: false,
+            mode: "index"
+          },
+          plugins: {
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                maxTicksLimit: 6,
+                maxRotation: 0
+              },
+              grid: {
+                display: false
+              }
+            },
+            y: {
+              beginAtZero: true,
+              ...(maxY ? { max: maxY } : {})
+            }
+          }
+        }
+      });
+    }
+
+    const waterChart = createLineChart(
+      "waterChart", "Water", "#60a5fa", 4095
+    );
+
+    const smokeChart = createLineChart(
+      "smokeChart", "Smoke", "#ffb454", 4095
+    );
+
+    const magnitudeChart = createLineChart(
+      "magnitudeChart", "Acceleration", "#b69cff", null
+    );
+
+    const alertChart = new Chart($("alertChart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [{
+          label: "Disaster Alert (0 = Safe, 1 = Alert)",
+          data: [],
+          borderColor: "#ff5d73",
+          backgroundColor: "#ff5d7322",
+          borderWidth: 2,
+          pointRadius: 2,
+          stepped: true,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 6,
+              maxRotation: 0
+            },
+            grid: { display: false }
+          },
+          y: {
+            min: 0,
+            max: 1,
+            ticks: {
+              stepSize: 1,
+              callback: (value) => value === 1 ? "Alert" : "Safe"
+            }
+          }
+        }
+      }
+    });
+
+    function addPoint(chart, label, value) {
+      chart.data.labels.push(label);
+      chart.data.datasets[0].data.push(value);
+
+      if (chart.data.labels.length > MAX_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+
+      chart.update("none");
+    }
+
+    // =====================================================
+    // CONNECTION STATUS
+    // =====================================================
+    function setConnection(status, message) {
+      $("connectionDot").className = "dot " + status;
+      $("connectionText").textContent = message;
+    }
+
+    function connectMQTT() {
+      setConnection("", "Connecting to MQTT...");
+
+      mqttClient = mqtt.connect(MQTT_URL, {
+        clientId: "DisasterGuardWeb_" +
+          Math.random().toString(16).slice(2, 10),
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: 3000,
+        keepalive: 30
+      });
+
+      mqttClient.on("connect", () => {
+        setConnection("online", "MQTT connected");
+
+        mqttClient.subscribe(MQTT_TOPIC, { qos: 0 }, (err) => {
+          if (err) {
+            console.error("MQTT subscribe failed:", err);
+            setConnection("offline", "Subscription failed");
+          } else {
+            console.log("Subscribed to:", MQTT_TOPIC);
+          }
+        });
+      });
+
+      mqttClient.on("reconnect", () => {
+        setConnection("", "Reconnecting to MQTT...");
+      });
+
+      mqttClient.on("offline", () => {
+        setConnection("offline", "MQTT offline");
+      });
+
+      mqttClient.on("close", () => {
+        setConnection("offline", "MQTT disconnected");
+      });
+
+      mqttClient.on("error", (err) => {
+        console.error("MQTT error:", err);
+        setConnection("offline", "MQTT connection error");
+      });
+
+      mqttClient.on("message", (topic, message) => {
+        if (topic !== MQTT_TOPIC) return;
+
+        try {
+          const data = JSON.parse(message.toString());
+          processSensorData(data);
+        } catch (err) {
+          console.error("Invalid sensor JSON:", err);
+        }
+      });
+    }
+
+    // =====================================================
+    // UPDATE STATUS ELEMENT
+    // =====================================================
+    function setStatus(id, active, activeText, safeText) {
+      const el = $(id);
+
+      el.textContent = active
+        ? "● " + activeText
+        : "● " + safeText;
+
+      el.className = "status " + (active ? "danger" : "safe");
+    }
+
+    // =====================================================
+    // PROCESS LIVE ESP32 DATA
+    // =====================================================
+    function processSensorData(data) {
+      const water = Number(data.water);
+      const smoke = Number(data.smoke);
+      const magnitude = Number(data.magnitude);
+
+      if (
+        !Number.isFinite(water) ||
+        !Number.isFinite(smoke) ||
+        !Number.isFinite(magnitude) ||
+        typeof data.flood === "undefined" ||
+        typeof data.smokeAlert === "undefined" ||
+        typeof data.vibration === "undefined" ||
+        typeof data.alarm === "undefined"
+      ) {
+        console.warn("Sensor message missing required fields:", data);
+        return;
+      }
+
+      const flood = Number(data.flood) === 1;
+      const smokeAlert = Number(data.smokeAlert) === 1;
+      const vibration = Number(data.vibration) === 1;
+      const alarm = Number(data.alarm) === 1;
+
+      lastPayloadTime = Date.now();
+
+      // Sensor cards
+      $("waterValue").textContent = water;
+      $("smokeValue").textContent = smoke;
+      $("vibrationValue").textContent =
+        vibration ? "DETECTED" : "Normal";
+      $("magnitudeValue").textContent = magnitude.toFixed(2);
+      $("alarmValue").textContent = alarm ? "ALERT" : "SAFE";
+      $("mpuStatus").textContent =
+        Number(data.mpuAvailable) === 1 ? "Ready" : "Not detected";
+
+      $("lastUpdated").textContent =
+        new Date().toLocaleTimeString();
+
+      // Individual sensor states
+      setStatus("floodStatus", flood, "Flood detected", "No flood alert");
+      setStatus(
+        "smokeStatus", smokeAlert, "Smoke detected", "No smoke alert"
+      );
+      setStatus(
+        "vibrationStatus", vibration, "Vibration detected", "Normal"
+      );
+      setStatus(
+        "alarmStatus", alarm, "Disaster alert active", "System safe"
+      );
+
+      // Overall alert banner
+      const banner = $("mainBanner");
+      banner.className = "banner " + (alarm ? "danger" : "safe");
+
+      if (alarm) {
+        $("bannerIcon").textContent = "🚨";
+        $("bannerTitle").textContent = "DISASTER ALERT";
+        const active = [];
+
+        if (flood) active.push("Flood");
+        if (smokeAlert) active.push("Smoke");
+        if (vibration) active.push("Vibration");
+
+        $("bannerMessage").textContent =
+          "Active detection: " + active.join(", ");
+      } else {
+        $("bannerIcon").textContent = "✅";
+        $("bannerTitle").textContent = "All monitored sensors normal";
+        $("bannerMessage").textContent =
+          "No active flood, smoke, or vibration alerts reported.";
+      }
+
+      // Graphs
+      const time = new Date().toLocaleTimeString();
+
+      addPoint(waterChart, time, water);
+      addPoint(smokeChart, time, smoke);
+      addPoint(magnitudeChart, time, magnitude);
+      addPoint(alertChart, time, alarm ? 1 : 0);
+
+      // Record new alerts only when they become active
+      if (flood && !previousAlerts.flood) {
+        addAlert("FLOOD", "Water sensor exceeded the threshold.");
+      }
+
+      if (smokeAlert && !previousAlerts.smoke) {
+        addAlert("SMOKE", "Smoke sensor exceeded the threshold.");
+      }
+
+      if (vibration && !previousAlerts.vibration) {
+        addAlert("VIBRATION", "Abnormal acceleration detected.");
+      }
+
+      previousAlerts = {
+        flood: flood,
+        smoke: smokeAlert,
+        vibration: vibration
+      };
+    }
+
+    // =====================================================
+    // ALERT HISTORY AND NOTIFICATIONS
+    // =====================================================
+    function addAlert(type, message) {
+      const list = $("alertHistory");
+
+      const empty = list.querySelector(".empty");
+      if (empty) list.innerHTML = "";
+
+      const item = document.createElement("li");
+
+      const heading = document.createElement("strong");
+      heading.textContent = "🚨 " + type + " ALERT";
+
+      const details = document.createElement("div");
+      details.textContent = message;
+
+      const time = document.createElement("div");
+      time.className = "alert-time";
+      time.textContent = new Date().toLocaleString();
+
+      item.append(heading, details, time);
+      list.prepend(item);
+
+      while (list.children.length > 30) {
+        list.removeChild(list.lastElementChild);
+      }
+
+      if (
+        browserNotificationsEnabled &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        try {
+          new Notification("DisasterGuard: " + type + " Alert", {
+            body: message
+          });
+        } catch (err) {
+          console.warn("Browser notification failed:", err);
+        }
+      }
+    }
+
+    $("notifyButton").addEventListener("click", async () => {
+      if (!("Notification" in window)) {
+        alert("This browser does not support notifications.");
+        return;
+      }
+
+      try {
+        const permission = await Notification.requestPermission();
+
+        if (permission === "granted") {
+          browserNotificationsEnabled = true;
+          $("notifyButton").textContent = "Notifications Enabled";
+          alert("Browser notifications enabled.");
+        } else {
+          browserNotificationsEnabled = false;
+          alert("Notifications were not permitted by your browser.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Could not enable browser notifications.");
+      }
+    });
+
+    $("clearButton").addEventListener("click", () => {
+      $("alertHistory").innerHTML =
+        '<li class="empty">No alerts recorded.</li>';
+    });
+
+    // =====================================================
+    // STALE DATA INDICATOR
+    // =====================================================
+    setInterval(() => {
+      if (
+        lastPayloadTime !== 0 &&
+        Date.now() - lastPayloadTime > 10000
+      ) {
+        $("lastUpdated").textContent = "No recent readings";
+
+        const banner = $("mainBanner");
+        banner.className = "banner waiting";
+        $("bannerIcon").textContent = "📡";
+        $("bannerTitle").textContent = "Sensor data delayed";
+        $("bannerMessage").textContent =
+          "No MQTT sensor readings received in the last 10 seconds.";
+      }
+    }, 2000);
+
+    // =====================================================
+    // START DASHBOARD
+    // =====================================================
+    connectMQTT();
+  </script>
+</body>
+</html>
+
